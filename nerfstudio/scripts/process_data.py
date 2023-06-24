@@ -35,6 +35,10 @@ from nerfstudio.process_data import (
 )
 from nerfstudio.process_data.colmap_converter_to_nerfstudio_dataset import BaseConverterToNerfstudioDataset
 from nerfstudio.process_data.images_to_nerfstudio_dataset import ImagesToNerfstudioDataset
+<<<<<<< HEAD
+=======
+from nerfstudio.process_data.images_to_optical_flow import ImagesToOpticalFlow
+>>>>>>> 1462c052 (Add script to extract opt flow)
 from nerfstudio.process_data.video_to_nerfstudio_dataset import VideoToNerfstudioDataset
 from nerfstudio.utils.rich_utils import CONSOLE
 
@@ -394,6 +398,7 @@ Commands = Union[
     Annotated[ProcessMetashape, tyro.conf.subcommand(name="metashape")],
     Annotated[ProcessRealityCapture, tyro.conf.subcommand(name="realitycapture")],
     Annotated[ProcessRecord3D, tyro.conf.subcommand(name="record3d")],
+    Annotated[ImagesToOpticalFlow, tyro.conf.subcommand(name="optical-flow")],
 ]
 
 

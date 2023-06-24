@@ -75,6 +75,11 @@ gen = [
     "sentencepiece==0.1.99",
 ]
 
+# Local RF dependencies
+localrf = [
+    "raft@git+https://github.com/kst179/RAFT.git#egg=1de41b9",
+    "dpt@git+https://github.com/isl-org/DPT.git#egg=f43ef9e",
+]
 
 # Development packages
 dev = [
