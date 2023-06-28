@@ -21,13 +21,15 @@ from typing import Literal, Tuple
 
 import cv2
 import numpy as np
-import requests
 import torch
 from raft import RAFT
 from raft.utils import InputPadder, flow_viz
 
 from nerfstudio.process_data.base_converter_to_nerfstudio_dataset import BaseConverterToNerfstudioDataset
-from nerfstudio.utils.rich_utils import CONSOLE, get_progress, status
+from nerfstudio.process_data.download_utils import download_file
+from nerfstudio.utils.rich_utils import CONSOLE, get_progress
+
+MODELS_URL = "https://www.dropbox.com/s/4j4z58wuv8o0mfz/models.zip?dl=1"
 
 
 @dataclass
@@ -64,9 +66,6 @@ class ImagesToOpticalFlow(BaseConverterToNerfstudioDataset):
     alternate_corr: bool = False
     """If True, alternative correlation implementation is used (more efficient, but needs jit compilation)"""
 
-    weights_url: str = "https://www.dropbox.com/s/4j4z58wuv8o0mfz/models.zip?dl=1"
-    """URL to model weights"""
-
     @torch.no_grad()
     def main(self) -> None:
         model_path = self.model_cache_path / "models" / f"raft-{self.raft_model}.pth"
@@ -87,7 +86,7 @@ class ImagesToOpticalFlow(BaseConverterToNerfstudioDataset):
         raft_model.eval()
 
         # Read and preprocess the video
-        input_files = sorted((self.data / "images").iterdir())
+        input_files = sorted(self.data.iterdir())
 
         flow_ds_path = self.output_dir / "flow_ds"
         flow_vis_path = self.output_dir / "flow_vis"
@@ -171,16 +170,21 @@ class ImagesToOpticalFlow(BaseConverterToNerfstudioDataset):
         self.model_cache_path.mkdir(exist_ok=True, parents=True)
         model_zip_path = self.model_cache_path / "models.zip"
 
-        with status(msg="Downloading weights...", spinner="bouncingBall", verbose=self.verbose):
-            response = requests.get(self.weights_url)
+        downloaded = download_file(
+            MODELS_URL,
+            model_zip_path,
+            description=":inbox_tray: :inbox_tray: :inbox_tray: "
+            "Downloading RAFT weights "
+            ":inbox_tray: :inbox_tray: :inbox_tray:",
+        )
 
-            with open(model_zip_path, "wb") as f:
-                f.write(response.content)
+        if not downloaded:
+            raise RuntimeError("Cannot download weights for RAFT")
 
-            with zipfile.ZipFile(model_zip_path, "r") as zip:
-                zip.extractall(self.model_cache_path)
+        with zipfile.ZipFile(model_zip_path, "r") as zip:
+            zip.extractall(self.model_cache_path)
 
-            model_zip_path.unlink()
+        model_zip_path.unlink()
 
     def _compute_fwdbwd_mask(self, fwd_flow, bwd_flow, alpha=0.05, beta=0.5):
         bwd2fwd_flow = self._warp_flow(bwd_flow, fwd_flow)
