@@ -34,6 +34,7 @@ from nerfstudio.process_data import (
     record3d_utils,
 )
 from nerfstudio.process_data.colmap_converter_to_nerfstudio_dataset import BaseConverterToNerfstudioDataset
+from nerfstudio.process_data.images_to_monodepth import ImagesToMonodepth
 from nerfstudio.process_data.images_to_nerfstudio_dataset import ImagesToNerfstudioDataset
 <<<<<<< HEAD
 =======
@@ -399,6 +400,7 @@ Commands = Union[
     Annotated[ProcessRealityCapture, tyro.conf.subcommand(name="realitycapture")],
     Annotated[ProcessRecord3D, tyro.conf.subcommand(name="record3d")],
     Annotated[ImagesToOpticalFlow, tyro.conf.subcommand(name="optical-flow")],
+    Annotated[ImagesToMonodepth, tyro.conf.subcommand(name="monodepth")],
 ]
 
 
