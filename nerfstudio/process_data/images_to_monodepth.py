@@ -12,11 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 import cv2
+import numpy as np
 import torch
 import util.io
 from dpt.models import DPTDepthModel
@@ -25,6 +27,7 @@ from torchvision.transforms import Compose
 
 from nerfstudio.process_data.base_converter_to_nerfstudio_dataset import BaseConverterToNerfstudioDataset
 from nerfstudio.process_data.download_utils import download_file
+from nerfstudio.process_data.process_data_utils import downscale_images
 from nerfstudio.utils.rich_utils import CONSOLE, get_progress
 
 MODEL_CONFIGS = {
@@ -88,8 +91,14 @@ class ImagesToMonodepth(BaseConverterToNerfstudioDataset):
     absolute_depth: bool = False
     """If True"""
 
+    num_downscales: int = 3
+    """Number of times to downscale the depth images. Downscales by 2 each time."""
+
     @torch.no_grad()
     def main(self):
+        torch.backends.cudnn.enabled = True
+        torch.backends.cudnn.benchmark = True
+
         config = MODEL_CONFIGS[self.dpt_model]
         model_path = self.model_cache_path / f"{self.dpt_model}.pt"
 
@@ -146,8 +155,19 @@ class ImagesToMonodepth(BaseConverterToNerfstudioDataset):
         paths_to_images = sorted(self.data.iterdir())
 
         # Create output dir
-        depth_dir = self.output_dir / "depth"
-        depth_dir.mkdir(parents=True, exist_ok=True)
+        monodepth_dir = self.output_dir / "monodepths"
+        monodepth_dir.mkdir(parents=True, exist_ok=True)
+
+        transforms_path = self.output_dir / "transforms.json"
+
+        transforms_json = None
+        img_path_to_frame = None
+
+        if transforms_path.exists():
+            with open(transforms_path, "r", encoding="utf-8") as json_file:
+                transforms_json = json.load(json_file)
+
+            img_path_to_frame = {frame["file_path"]: frame for frame in transforms_json["frames"]}
 
         progress = get_progress(description="Calculating monocular depth...")
         with progress:
@@ -175,13 +195,28 @@ class ImagesToMonodepth(BaseConverterToNerfstudioDataset):
                     .numpy()
                 )
 
-                if self.dpt_model == "dpt_hybrid_kitti":
-                    prediction *= 256
+                prediction = prediction - prediction.min()
+                prediction = prediction / prediction.max()
 
-                if self.dpt_model == "dpt_hybrid_nyu":
-                    prediction *= 1000.0
+                prediction = (prediction * 65535).round().astype(np.uint16)
 
-                filename = depth_dir / image_path.stem
-                util.io.write_depth(filename.as_posix(), prediction, bits=2, absolute_depth=self.absolute_depth)
+                depth_path = monodepth_dir / image_path.name
+                cv2.imwrite(depth_path.as_posix(), prediction)
+
+                relative_img_path = image_path.relative_to(self.output_dir).as_posix()
+                relative_depth_path = depth_path.relative_to(self.output_dir).as_posix()
+
+                if img_path_to_frame and relative_img_path in img_path_to_frame:
+                    img_path_to_frame[relative_img_path]["monodepth_file_path"] = relative_depth_path
+
+        downscale_status = downscale_images(
+            monodepth_dir, self.num_downscales, folder_name="monodepths", verbose=self.verbose
+        )
+        if self.verbose:
+            CONSOLE.log(downscale_status)
+
+        if transforms_json:
+            with open(transforms_path, "w", encoding="utf-8") as json_file:
+                json.dump(transforms_json, json_file, indent=4)
 
         CONSOLE.log("[bold green]:tada: :tada: :tada: All DONE :tada: :tada: :tada:")
