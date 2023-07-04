@@ -126,6 +126,8 @@ class NerfactoModelConfig(ModelConfig):
     """Which implementation to use for the model."""
     appearance_embed_dim: int = 32
     """Dimension of the appearance embedding."""
+    depth_render_method: Literal["median", "expected"] = "median"
+    """Either render termination depth with median point or weighted depth average"""
 
 
 class NerfactoModel(Model):
@@ -386,13 +388,19 @@ class NerfactoModel(Model):
         gt_rgb = torch.moveaxis(gt_rgb, -1, 0)[None, ...]
         predicted_rgb = torch.moveaxis(predicted_rgb, -1, 0)[None, ...]
 
+<<<<<<< HEAD
         psnr = self.psnr(gt_rgb, predicted_rgb)
         ssim = self.ssim(gt_rgb, predicted_rgb)
         lpips = self.lpips(gt_rgb, predicted_rgb)
+=======
+        psnr = self.psnr(image, rgb)
+        ssim = self.ssim(image, rgb)
+        # lpips = self.lpips(image, rgb)
+>>>>>>> 28b1a641 (Add monodepth-nerfacto model)
 
         # all of these metrics will be logged as scalars
         metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim)}  # type: ignore
-        metrics_dict["lpips"] = float(lpips)
+        # metrics_dict["lpips"] = float(lpips)
 
         images_dict = {"img": combined_rgb, "accumulation": combined_acc, "depth": combined_depth}
 

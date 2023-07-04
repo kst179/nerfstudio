@@ -95,6 +95,7 @@ class Nerfstudio(DataParser):
         image_filenames = []
         mask_filenames = []
         depth_filenames = []
+        monodepth_filenames = []
         poses = []
 
         fx_fixed = "fl_x" in meta
@@ -175,6 +176,11 @@ class Nerfstudio(DataParser):
                 depth_fname = self._get_fname(depth_filepath, data_dir, downsample_folder_prefix="depths_")
                 depth_filenames.append(depth_fname)
 
+            if "monodepth_file_path" in frame:
+                monodepth_filepath = Path(frame["monodepth_file_path"])
+                monodepth_fname = self._get_fname(monodepth_filepath, data_dir, downsample_folder_prefix="monodepths_")
+                monodepth_filenames.append(monodepth_fname)
+
         assert len(mask_filenames) == 0 or (
             len(mask_filenames) == len(image_filenames)
         ), """
@@ -186,6 +192,12 @@ class Nerfstudio(DataParser):
         ), """
         Different number of image and depth filenames.
         You should check that depth_file_path is specified for every frame (or zero frames) in transforms.json.
+        """
+        assert len(monodepth_filenames) == 0 or (
+            len(monodepth_filenames) == len(image_filenames)
+        ), """
+        Different number of image and monodepth filenames.
+        You should check that monodepth_file_path is specified for every frame (or zero frames) in transforms.json.
         """
 
         has_split_files_spec = any(f"{split}_filenames" in meta for split in ("train", "val", "test"))
@@ -318,6 +330,7 @@ class Nerfstudio(DataParser):
             dataparser_transform=transform_matrix,
             metadata={
                 "depth_filenames": depth_filenames if len(depth_filenames) > 0 else None,
+                "monodepth_filenames": monodepth_filenames if len(monodepth_filenames) > 0 else None,
                 "depth_unit_scale_factor": self.config.depth_unit_scale_factor,
             },
         )
