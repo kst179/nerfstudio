@@ -25,7 +25,8 @@ from dpt.models import DPTDepthModel
 from dpt.transforms import NormalizeImage, PrepareForNet, Resize
 from torchvision.transforms import Compose
 
-from nerfstudio.process_data.base_converter_to_nerfstudio_dataset import BaseConverterToNerfstudioDataset
+from nerfstudio.process_data.base_converter_to_nerfstudio_dataset import \
+    BaseConverterToNerfstudioDataset
 from nerfstudio.process_data.download_utils import download_file
 from nerfstudio.process_data.process_data_utils import downscale_images
 from nerfstudio.utils.rich_utils import CONSOLE, get_progress
@@ -169,7 +170,7 @@ class ImagesToMonodepth(BaseConverterToNerfstudioDataset):
 
             img_path_to_frame = {frame["file_path"]: frame for frame in transforms_json["frames"]}
 
-        progress = get_progress(description="Calculating monocular depth...")
+        progress = get_progress(description="[bold yellow]Calculating monocular depth...")
         with progress:
             for image_path in progress.track(paths_to_images):
                 img = util.io.read_image(image_path.as_posix())
@@ -198,9 +199,10 @@ class ImagesToMonodepth(BaseConverterToNerfstudioDataset):
                 prediction = prediction - prediction.min()
                 prediction = prediction / prediction.max()
 
-                prediction = (prediction * 65535).round().astype(np.uint16)
+                prediction = (prediction * ((1 << 16) - 1)).round().astype(np.uint16)
 
-                depth_path = monodepth_dir / image_path.name
+                # Replace original frame extension with png to save 16-bit depth images
+                depth_path = monodepth_dir / f"{image_path.stem}.png"
                 cv2.imwrite(depth_path.as_posix(), prediction)
 
                 relative_img_path = image_path.relative_to(self.output_dir).as_posix()
