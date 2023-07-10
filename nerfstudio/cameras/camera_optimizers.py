@@ -31,10 +31,7 @@ from typing_extensions import assert_never
 from nerfstudio.cameras.lie_groups import exp_map_SE3, exp_map_SO3xR3
 from nerfstudio.configs.base_config import InstantiateConfig
 from nerfstudio.engine.optimizers import AdamOptimizerConfig, OptimizerConfig
-from nerfstudio.engine.schedulers import (
-    ExponentialDecaySchedulerConfig,
-    SchedulerConfig,
-)
+from nerfstudio.engine.schedulers import ExponentialDecaySchedulerConfig, SchedulerConfig
 from nerfstudio.utils import poses as pose_utils
 
 

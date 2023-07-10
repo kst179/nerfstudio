@@ -28,6 +28,7 @@ from nerfstudio.configs.base_config import ViewerConfig
 from nerfstudio.configs.external_methods import get_external_methods
 from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManager, VanillaDataManagerConfig
 from nerfstudio.data.datamanagers.random_cameras_datamanager import RandomCamerasDataManagerConfig
+from nerfstudio.data.datamanagers.sequential_datamanager import SequentialDatamagerConfig
 from nerfstudio.data.dataparsers.blender_dataparser import BlenderDataParserConfig
 from nerfstudio.data.dataparsers.dnerf_dataparser import DNeRFDataParserConfig
 from nerfstudio.data.dataparsers.instant_ngp_dataparser import InstantNGPDataParserConfig
@@ -52,6 +53,7 @@ from nerfstudio.fields.sdf_field import SDFFieldConfig
 from nerfstudio.models.depth_nerfacto import DepthNerfactoModelConfig
 from nerfstudio.models.generfacto import GenerfactoModelConfig
 from nerfstudio.models.instant_ngp import InstantNGPModelConfig
+from nerfstudio.models.localrf import LocalRFModel, LocalRFModelConfig
 from nerfstudio.models.mipnerf import MipNerfModel
 from nerfstudio.models.monodepth_nerfacto import MonodepthNerfactoModelConfig
 from nerfstudio.models.nerfacto import NerfactoModelConfig
@@ -454,6 +456,34 @@ method_configs["tensorf"] = TrainerConfig(
         "encodings": {
             "optimizer": AdamOptimizerConfig(lr=0.02),
             "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.002, max_steps=30000),
+        },
+    },
+    viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
+    vis="viewer",
+)
+
+method_configs["localrf"] = TrainerConfig(
+    method_name="localrf",
+    steps_per_eval_batch=500,
+    steps_per_save=2000,
+    max_num_iterations=1000000,
+    mixed_precision=False,
+    pipeline=VanillaPipelineConfig(
+        datamanager=SequentialDatamagerConfig(
+            dataparser=NerfstudioDataParserConfig(),
+            train_num_rays_per_batch=4096,
+            eval_num_rays_per_batch=4096,
+        ),
+        model=LocalRFModelConfig(),
+    ),
+    optimizers={
+        "fields": {
+            "optimizer": AdamOptimizerConfig(lr=0.001),
+            "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.0001, max_steps=10000),
+        },
+        "encodings": {
+            "optimizer": AdamOptimizerConfig(lr=0.02),
+            "scheduler": ExponentialDecaySchedulerConfig(lr_final=0.002, max_steps=10000),
         },
     },
     viewer=ViewerConfig(num_rays_per_chunk=1 << 15),
