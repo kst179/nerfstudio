@@ -27,7 +27,8 @@ from jaxtyping import Float, Int, Shaped
 from torch import Tensor, nn
 
 from nerfstudio.field_components.base_field_component import FieldComponent
-from nerfstudio.utils.math import components_from_spherical_harmonics, expected_sin
+from nerfstudio.utils.math import (components_from_spherical_harmonics,
+                                   expected_sin)
 from nerfstudio.utils.printing import print_tcnn_speed_warning
 
 try:
@@ -555,7 +556,7 @@ class TriplaneEncoding(Encoding):
         return self.num_components
 
     def forward(self, in_tensor: Float[Tensor, "*bs 3"]) -> Float[Tensor, "*bs num_components featuresize"]:
-        """Sample features from this encoder. Expects in_tensor to be in range [0, resolution]"""
+        """Sample features from this encoder. Expects in_tensor to be in range [-1, 1]"""
 
         original_shape = in_tensor.shape
         in_tensor = in_tensor.reshape(-1, 3)

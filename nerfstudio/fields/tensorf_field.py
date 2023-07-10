@@ -18,6 +18,7 @@
 from typing import Dict, Optional
 
 import torch
+from jaxtyping import Float
 from torch import Tensor, nn
 from torch.nn.parameter import Parameter
 
@@ -26,6 +27,7 @@ from nerfstudio.data.scene_box import SceneBox
 from nerfstudio.field_components.encodings import Encoding, Identity, SHEncoding
 from nerfstudio.field_components.field_heads import FieldHeadNames, RGBFieldHead
 from nerfstudio.field_components.mlp import MLP
+from nerfstudio.field_components.spatial_distortions import SpatialDistortion
 from nerfstudio.fields.base_field import Field
 
 
@@ -54,6 +56,8 @@ class TensoRFField(Field):
         # whether to use spherical harmonics as the feature decoding function
         sh_levels: int = 2,
         # number of levels to use for spherical harmonics
+        spatial_distortion: Optional[SpatialDistortion] = None,
+        # if set then spatial distortion is applied to samples
     ) -> None:
         super().__init__()
         self.aabb = Parameter(aabb, requires_grad=False)
@@ -61,6 +65,7 @@ class TensoRFField(Field):
         self.direction_encoding = direction_encoding
         self.density_encoding = density_encoding
         self.color_encoding = color_encoding
+        self.spatial_distortion = spatial_distortion
 
         self.mlp_head = MLP(
             in_dim=appearance_dim + 3 + self.direction_encoding.get_out_dim() + self.feature_encoding.get_out_dim(),
@@ -83,8 +88,7 @@ class TensoRFField(Field):
         self.field_output_rgb = RGBFieldHead(in_dim=self.mlp_head.get_out_dim(), activation=nn.Sigmoid())
 
     def get_density(self, ray_samples: RaySamples) -> Tensor:
-        positions = SceneBox.get_normalized_positions(ray_samples.frustums.get_positions(), self.aabb)
-        positions = positions * 2 - 1
+        positions = self._get_normalized_positions(ray_samples)
         density = self.density_encoding(positions)
         density_enc = torch.sum(density, dim=-1)[:, :, None]
         relu = torch.nn.ReLU()
@@ -93,8 +97,7 @@ class TensoRFField(Field):
 
     def get_outputs(self, ray_samples: RaySamples, density_embedding: Optional[Tensor] = None) -> Tensor:
         d = ray_samples.frustums.directions
-        positions = SceneBox.get_normalized_positions(ray_samples.frustums.get_positions(), self.aabb)
-        positions = positions * 2 - 1
+        positions = self._get_normalized_positions(ray_samples)
         rgb_features = self.color_encoding(positions)
         rgb_features = self.B(rgb_features)
 
@@ -141,3 +144,25 @@ class TensoRFField(Field):
             rgb = self.get_outputs(ray_samples, None)
 
         return {FieldHeadNames.DENSITY: density, FieldHeadNames.RGB: rgb}
+
+    def _get_normalized_positions(self, ray_samples: RaySamples) -> Float[Tensor, "*bs 3"]:
+        """Transforms samples positions to [-1, 1] cube
+
+        Args:
+            ray_samples (RaySamples): samples with
+
+        Returns:
+            Tensor: _description_
+        """
+        if self.spatial_distortion is not None:
+            # move positions to local coordinates, distort, move to [-1, 1] cube
+            aabb_center = self.aabb.mean(dim=0)
+            positions = ray_samples.frustums.get_positions() - aabb_center
+            positions = self.spatial_distortion(positions)
+            positions = positions / 2
+        else:
+            # rescale positions to [-1, 1] cube
+            positions = SceneBox.get_normalized_positions(ray_samples.frustums.get_positions(), self.aabb)
+            positions = positions * 2 - 1
+
+        return positions

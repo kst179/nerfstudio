@@ -30,26 +30,14 @@ from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
 from nerfstudio.cameras.rays import RayBundle
 from nerfstudio.configs.config_utils import to_immutable_dict
-from nerfstudio.engine.callbacks import (
-    TrainingCallback,
-    TrainingCallbackAttributes,
-    TrainingCallbackLocation,
-)
-from nerfstudio.field_components.encodings import (
-    NeRFEncoding,
-    TensorCPEncoding,
-    TensorVMEncoding,
-    TriplaneEncoding,
-)
+from nerfstudio.engine.callbacks import TrainingCallback, TrainingCallbackAttributes, TrainingCallbackLocation
+from nerfstudio.field_components.encodings import NeRFEncoding, TensorCPEncoding, TensorVMEncoding, TriplaneEncoding
 from nerfstudio.field_components.field_heads import FieldHeadNames
+from nerfstudio.field_components.spatial_distortions import SceneContraction
 from nerfstudio.fields.tensorf_field import TensoRFField
 from nerfstudio.model_components.losses import MSELoss, tv_loss
 from nerfstudio.model_components.ray_samplers import PDFSampler, UniformSampler
-from nerfstudio.model_components.renderers import (
-    AccumulationRenderer,
-    DepthRenderer,
-    RGBRenderer,
-)
+from nerfstudio.model_components.renderers import AccumulationRenderer, DepthRenderer, RGBRenderer
 from nerfstudio.model_components.scene_colliders import AABBBoxCollider
 from nerfstudio.models.base_model import Model, ModelConfig
 from nerfstudio.utils import colormaps, colors, misc
@@ -89,6 +77,8 @@ class TensoRFModelConfig(ModelConfig):
     tensorf_encoding: Literal["triplane", "vm", "cp"] = "vm"
     regularization: Literal["none", "l1", "tv"] = "l1"
     """Regularization method used in tensorf paper"""
+    use_spatial_distortion: bool = True
+    """If True uses spatial distortion for unbounded scene resonstruction"""
 
 
 class TensoRFModel(Model):
@@ -110,6 +100,8 @@ class TensoRFModel(Model):
         self.num_den_components = config.num_den_components
         self.num_color_components = config.num_color_components
         self.appearance_dim = config.appearance_dim
+        self.use_spatial_distortion = config.use_spatial_distortion
+
         self.upsampling_steps = (
             np.round(
                 np.exp(
@@ -183,6 +175,11 @@ class TensoRFModel(Model):
         """Set the fields and modules"""
         super().populate_modules()
 
+        if self.use_spatial_distortion:
+            self.spatial_distortion = SceneContraction()
+        else:
+            self.spatial_distortion = None
+
         # setting up fields
         if self.config.tensorf_encoding == "vm":
             density_encoding = TensorVMEncoding(
@@ -206,10 +203,12 @@ class TensoRFModel(Model):
             density_encoding = TriplaneEncoding(
                 resolution=self.init_resolution,
                 num_components=self.num_den_components,
+                reduce="product",
             )
             color_encoding = TriplaneEncoding(
                 resolution=self.init_resolution,
                 num_components=self.num_color_components,
+                reduce="product",
             )
         else:
             raise ValueError(f"Encoding {self.config.tensorf_encoding} not supported")
@@ -227,6 +226,7 @@ class TensoRFModel(Model):
             head_mlp_num_layers=2,
             head_mlp_layer_width=128,
             use_sh=False,
+            spatial_distortion=self.spatial_distortion,
         )
 
         # samplers
