@@ -14,6 +14,8 @@
 
 """Processes an image sequence to a sequence of optical flow between consecutive images."""
 
+import json
+import shutil
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,14 +29,20 @@ from raft.utils import InputPadder, flow_viz
 
 from nerfstudio.process_data.base_converter_to_nerfstudio_dataset import BaseConverterToNerfstudioDataset
 from nerfstudio.process_data.download_utils import download_file
+from nerfstudio.process_data.process_data_utils import downscale_images
 from nerfstudio.utils.rich_utils import CONSOLE, get_progress
 
 MODELS_URL = "https://www.dropbox.com/s/4j4z58wuv8o0mfz/models.zip?dl=1"
 
 
 @dataclass
-class ImagesToOpticalFlow(BaseConverterToNerfstudioDataset):
+class ImagesToOpticalFlow:
     """Transforms a sequence of images to optical flow"""
+
+    data: Path
+    """Path the dataset in nerfstudio format"""
+
+    verbose: bool = False
 
     model_cache_path: Path = Path("cache/raft")
     """Path to cache models weights"""
@@ -47,6 +55,8 @@ class ImagesToOpticalFlow(BaseConverterToNerfstudioDataset):
 
     scale: float = 0.5
     """Images scale before flow calculation"""
+
+    num_downscales: int = 3
 
     device: Literal["cpu", "cuda"] = "cuda"
     """Device to run RAFT model on"""
@@ -68,44 +78,55 @@ class ImagesToOpticalFlow(BaseConverterToNerfstudioDataset):
 
     @torch.no_grad()
     def main(self) -> None:
-        model_path = self.model_cache_path / "models" / f"raft-{self.raft_model}.pth"
+        model_path = self.model_cache_path / f"raft-{self.raft_model}.pth"
 
         if not model_path.exists():
             self._download_weights()
 
         # Initialize optical flow model
-        raft_model = torch.nn.DataParallel(
+        model = torch.nn.DataParallel(
             RAFT(small=self.small, alternate_corr=self.alternate_corr, mixed_precision=self.mixed_precision),
             device_ids=self.device_ids,
         )
-        raft_model.load_state_dict(torch.load(model_path))
+        model.load_state_dict(torch.load(model_path))
 
         if self.device == "cuda":
-            raft_model.module.to(f"cuda:{self.device_ids[0]}")
+            model.module.to(f"cuda:{self.device_ids[0]}")
 
-        raft_model.eval()
+        model.eval()
 
         # Read and preprocess the video
-        input_files = sorted(self.data.iterdir())
+        images_dir = self.data / "images"
+        input_files = sorted(images_dir.iterdir())
 
-        flow_ds_path = self.output_dir / "flow_ds"
-        flow_vis_path = self.output_dir / "flow_vis"
+        flow_dir = self.data / "optical_flow"
+        flow_dir.mkdir(parents=True, exist_ok=True)
 
-        flow_ds_path.mkdir(parents=True, exist_ok=True)
-
+        flow_visualisation_dir = self.data / "flow_visualisation"
         if self.flow_visualization:
-            flow_vis_path.mkdir(parents=True, exist_ok=True)
+            flow_visualisation_dir.mkdir(parents=True, exist_ok=True)
+
+        transforms_path = self.data / "transforms.json"
+        transforms_json = None
+        img_path_to_frame = None
+
+        if transforms_path.exists():
+            with open(transforms_path, "r", encoding="utf-8") as json_file:
+                transforms_json = json.load(json_file)
+
+            img_path_to_frame = {frame["file_path"]: frame for frame in transforms_json["frames"]}
 
         prev_frame_torch = None
 
-        progress = get_progress("Calculating optical flow...")
+        progress = get_progress("[bold yellow]Calculating optical flow...")
         with progress:
             for filepath in progress.track(input_files):
                 fbase = filepath.stem
-                flow_ds_fwd_path = flow_ds_path / f"fwd_{fbase}.png"
-                flow_ds_bwd_path = flow_ds_path / f"bwd_{fbase}.png"
-                flow_vis_fwd_path = flow_vis_path / f"fwd_{fbase}.png"
-                flow_vis_bwd_path = flow_vis_path / f"bwd_{fbase}.png"
+                flow_fwd_path = flow_dir / f"fwd_{fbase}.png"
+                flow_bwd_path = flow_dir / f"bwd_{fbase}.png"
+
+                flow_vis_fwd_path = flow_visualisation_dir / f"fwd_{fbase}.png"
+                flow_vis_bwd_path = flow_visualisation_dir / f"bwd_{fbase}.png"
 
                 # Read and rescale frame
                 frame = cv2.imread(filepath.as_posix())
@@ -122,10 +143,19 @@ class ImagesToOpticalFlow(BaseConverterToNerfstudioDataset):
 
                 frame_torch = torch.einsum("hwc->chw", frame_torch).unsqueeze(0)
 
+                relative_img_path = filepath.relative_to(self.data).as_posix()
+                relative_fwd_flow_path = flow_fwd_path.relative_to(self.data).as_posix()
+                relative_bwd_flow_path = flow_bwd_path.relative_to(self.data).as_posix()
+
+                if img_path_to_frame is not None and relative_img_path in img_path_to_frame:
+                    frame_metadata = img_path_to_frame[relative_img_path]
+                    frame_metadata["fwd_flow_file"] = relative_fwd_flow_path
+                    frame_metadata["bwd_flow_file"] = relative_bwd_flow_path
+
                 if (
                     self.skip_if_exists
-                    and flow_ds_fwd_path.exists()
-                    and flow_ds_bwd_path.exists()
+                    and flow_fwd_path.exists()
+                    and flow_bwd_path.exists()
                     and (flow_vis_fwd_path.exists() or not self.flow_visualization)
                     and (flow_vis_bwd_path.exists() or not self.flow_visualization)
                 ):
@@ -138,10 +168,18 @@ class ImagesToOpticalFlow(BaseConverterToNerfstudioDataset):
                     image2 = torch.cat([frame_torch, prev_frame_torch], dim=0)
                     padder = InputPadder(image1.shape)
                     image1, image2 = padder.pad(image1, image2)
-                    _, flow_up = raft_model(image1, image2, iters=30, test_mode=True)
+                    _, flow_up = model(image1, image2, iters=30, test_mode=True)
 
                     fwd_flow = padder.unpad(flow_up[0]).cpu()
                     bwd_flow = padder.unpad(flow_up[1]).cpu()
+
+                    fwd_flow = torch.functional.F.interpolate(
+                        fwd_flow.unsqueeze(0), (height, width), mode="bilinear", align_corners=True
+                    ).squeeze(0)
+
+                    bwd_flow = torch.functional.F.interpolate(
+                        bwd_flow.unsqueeze(0), (height, width), mode="bilinear", align_corners=True
+                    ).squeeze(0)
 
                     fwd_flow = torch.einsum("chw->hwc", fwd_flow).numpy()
                     bwd_flow = torch.einsum("chw->hwc", bwd_flow).numpy()
@@ -155,14 +193,22 @@ class ImagesToOpticalFlow(BaseConverterToNerfstudioDataset):
                     mask_bwd = np.zeros((height, width), dtype=bool)
 
                 # Save flow
-                cv2.imwrite(flow_ds_fwd_path.as_posix(), self._encode_flow(fwd_flow, mask_fwd))
-                cv2.imwrite(flow_ds_bwd_path.as_posix(), self._encode_flow(bwd_flow, mask_bwd))
+                cv2.imwrite(flow_fwd_path.as_posix(), self._encode_flow(fwd_flow, mask_fwd))
+                cv2.imwrite(flow_bwd_path.as_posix(), self._encode_flow(bwd_flow, mask_bwd))
 
                 if self.flow_visualization:
                     cv2.imwrite(flow_vis_fwd_path.as_posix(), flow_viz.flow_to_image(fwd_flow))
                     cv2.imwrite(flow_vis_bwd_path.as_posix(), flow_viz.flow_to_image(bwd_flow))
 
                 prev_frame_torch = frame_torch
+
+        downscale_status = downscale_images(
+            flow_dir, self.num_downscales, folder_name="monodepths", verbose=self.verbose
+        )
+
+        if transforms_json is not None:
+            with open(transforms_path, "w", encoding="utf-8") as json_file:
+                json.dump(transforms_json, json_file, ensure_ascii=False, indent=4)
 
         CONSOLE.log("[bold green]:tada: :tada: :tada: All DONE :tada: :tada: :tada:")
 
@@ -173,7 +219,7 @@ class ImagesToOpticalFlow(BaseConverterToNerfstudioDataset):
         downloaded = download_file(
             MODELS_URL,
             model_zip_path,
-            description=":inbox_tray: :inbox_tray: :inbox_tray: "
+            description="[bold yellow]:inbox_tray: :inbox_tray: :inbox_tray: "
             "Downloading RAFT weights "
             ":inbox_tray: :inbox_tray: :inbox_tray:",
         )
@@ -183,6 +229,13 @@ class ImagesToOpticalFlow(BaseConverterToNerfstudioDataset):
 
         with zipfile.ZipFile(model_zip_path, "r") as zip:
             zip.extractall(self.model_cache_path)
+
+        models_dir = self.model_cache_path / "models"
+
+        for filename in models_dir.iterdir():
+            shutil.move(filename.as_posix(), self.model_cache_path)
+
+        models_dir.rmdir()
 
         model_zip_path.unlink()
 
@@ -207,7 +260,8 @@ class ImagesToOpticalFlow(BaseConverterToNerfstudioDataset):
 
     @staticmethod
     def _encode_flow(flow, mask):
-        flow = 1**15 + flow * (2**8)
-        mask &= np.max(flow, axis=-1) < (2**16 - 1)
+        flow = 1 ** 15 + flow * (2 ** 8)
+        mask &= np.max(flow, axis=-1) < (2 ** 16 - 1)
         mask &= 0 < np.min(flow, axis=-1)
-        return np.concatenate([flow.astype(np.uint16), mask[..., None].astype(np.uint16) * (2**16 - 1)], axis=-1)
+        return np.concatenate([flow.astype(np.uint16), mask[..., None].astype(np.uint16) * (2 ** 16 - 1)], axis=-1)
+

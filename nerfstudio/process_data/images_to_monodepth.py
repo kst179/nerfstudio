@@ -76,7 +76,11 @@ MODEL_CONFIGS = {
 
 
 @dataclass
-class ImagesToMonodepth(BaseConverterToNerfstudioDataset):
+class ImagesToMonodepth:
+    data: Path
+
+    verbose: bool = False
+
     model_cache_path: Path = Path("cache/dpt")
     """Path to cache models weights"""
 
@@ -153,13 +157,14 @@ class ImagesToMonodepth(BaseConverterToNerfstudioDataset):
         model.to(self.device)
 
         # Load images
-        paths_to_images = sorted(self.data.iterdir())
+        images_dir = self.data / "images"
+        paths_to_images = sorted(images_dir.iterdir())
 
         # Create output dir
-        monodepth_dir = self.output_dir / "monodepths"
+        monodepth_dir = self.data / "monodepths"
         monodepth_dir.mkdir(parents=True, exist_ok=True)
 
-        transforms_path = self.output_dir / "transforms.json"
+        transforms_path = self.data / "transforms.json"
 
         transforms_json = None
         img_path_to_frame = None
@@ -186,10 +191,7 @@ class ImagesToMonodepth(BaseConverterToNerfstudioDataset):
                 prediction = model.forward(sample)
                 prediction = (
                     torch.nn.functional.interpolate(
-                        prediction.unsqueeze(1),
-                        size=img.shape[:2],
-                        mode="bicubic",
-                        align_corners=False,
+                        prediction.unsqueeze(1), size=img.shape[:2], mode="bicubic", align_corners=False,
                     )
                     .squeeze()
                     .cpu()
@@ -205,8 +207,8 @@ class ImagesToMonodepth(BaseConverterToNerfstudioDataset):
                 depth_path = monodepth_dir / f"{image_path.stem}.png"
                 cv2.imwrite(depth_path.as_posix(), prediction)
 
-                relative_img_path = image_path.relative_to(self.output_dir).as_posix()
-                relative_depth_path = depth_path.relative_to(self.output_dir).as_posix()
+                relative_img_path = image_path.relative_to(self.data).as_posix()
+                relative_depth_path = depth_path.relative_to(self.data).as_posix()
 
                 if img_path_to_frame and relative_img_path in img_path_to_frame:
                     img_path_to_frame[relative_img_path]["monodepth_file_path"] = relative_depth_path
