@@ -43,6 +43,7 @@ from nerfstudio.data.datasets.semantic_dataset import SemanticDataset
 from nerfstudio.data.pixel_samplers import PairPixelSamplerConfig
 from nerfstudio.engine.optimizers import AdamOptimizerConfig, RAdamOptimizerConfig
 from nerfstudio.engine.schedulers import (
+    ConstantLRSchedulerConfig,
     CosineDecaySchedulerConfig,
     ExponentialDecaySchedulerConfig,
     MultiStepSchedulerConfig,
@@ -53,7 +54,7 @@ from nerfstudio.fields.sdf_field import SDFFieldConfig
 from nerfstudio.models.depth_nerfacto import DepthNerfactoModelConfig
 from nerfstudio.models.generfacto import GenerfactoModelConfig
 from nerfstudio.models.instant_ngp import InstantNGPModelConfig
-from nerfstudio.models.localrf import LocalRFModel, LocalRFModelConfig
+from nerfstudio.models.localrf import LocalRFModelConfig
 from nerfstudio.models.mipnerf import MipNerfModel
 from nerfstudio.models.monodepth_nerfacto import MonodepthNerfactoModelConfig
 from nerfstudio.models.nerfacto import NerfactoModelConfig
@@ -473,6 +474,7 @@ method_configs["localrf"] = TrainerConfig(
             dataparser=NerfstudioDataParserConfig(),
             train_num_rays_per_batch=4096,
             eval_num_rays_per_batch=4096,
+            camera_optimizer=CameraOptimizerConfig(mode="SO3xR3", scheduler=ConstantLRSchedulerConfig()),
         ),
         model=LocalRFModelConfig(),
     ),

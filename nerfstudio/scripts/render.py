@@ -20,14 +20,16 @@ from __future__ import annotations
 
 import json
 import os
-import struct
 import shutil
+import struct
 import sys
+import time
 from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
+import GPUtil
 import mediapy as media
 import numpy as np
 import torch
@@ -35,23 +37,12 @@ import tyro
 from jaxtyping import Float
 from rich import box, style
 from rich.panel import Panel
-from rich.progress import (
-    BarColumn,
-    Progress,
-    TaskProgressColumn,
-    TextColumn,
-    TimeElapsedColumn,
-    TimeRemainingColumn,
-)
+from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 from rich.table import Table
 from torch import Tensor
 from typing_extensions import Annotated
 
-from nerfstudio.cameras.camera_paths import (
-    get_interpolated_camera_path,
-    get_path_from_json,
-    get_spiral_path,
-)
+from nerfstudio.cameras.camera_paths import get_interpolated_camera_path, get_path_from_json, get_spiral_path
 from nerfstudio.cameras.cameras import Cameras, CameraType
 from nerfstudio.data.datamanagers.base_datamanager import VanillaDataManager
 from nerfstudio.data.scene_box import SceneBox
@@ -122,6 +113,8 @@ def _render_trajectory_video(
         # (unless we reserve enough space to overwrite with our uuid tag,
         # but we don't know how big the video file will be, so it's not certain!)
 
+    gpu = GPUtil.getGPUs()[0]
+
     with ExitStack() as stack:
         writer = None
 
@@ -142,6 +135,10 @@ def _render_trajectory_video(
                 else:
                     with torch.no_grad():
                         outputs = pipeline.model.get_outputs_for_camera_ray_bundle(camera_ray_bundle)
+
+                if gpu.temperature > 88:
+                    torch.cuda.synchronize()
+                    time.sleep(10)  # cooldown gpu
 
                 render_image = []
                 for rendered_output_name in rendered_output_names:

@@ -61,6 +61,21 @@ class Scheduler:
 
 
 @dataclass
+class ConstantLRSchedulerConfig(SchedulerConfig):
+    """Config for constant learning rate sheduler"""
+
+    _target: Type = field(default_factory=lambda: ConstantLRScheduler)
+    """target class to instantiate"""
+
+
+class ConstantLRScheduler(Scheduler):
+    """Constant lr scheduler which does not change learning step"""
+
+    def get_scheduler(self, optimizer: Optimizer, lr_init: float) -> LRScheduler:
+        return lr_scheduler.LambdaLR(optimizer, lambda step: lr_init)
+
+
+@dataclass
 class MultiStepSchedulerConfig(SchedulerConfig):
     """Config for multi step scheduler where lr decays by gamma every milestone"""
 

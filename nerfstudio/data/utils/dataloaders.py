@@ -146,7 +146,7 @@ class CacheDataloader(DataLoader):
             yield collated_batch
 
 
-class ToggleCacheDataloader(CacheDataloader):
+class ToggleCacheDataloader(DataLoader):
     """Collated image data loader that loads and caches images by request and can remove them from cache.
     While not recieving requests, it yields the same cached batch of images.
 
@@ -164,36 +164,47 @@ class ToggleCacheDataloader(CacheDataloader):
         device: Union[torch.device, str] = "cpu",
         collate_fn: Callable[[Any], Any] = nerfstudio_collate,
         exclude_batch_keys_from_device: Optional[List[str]] = None,
-        initial_image_idxs: List = [],
+        # initial_image_idxs: List = [],
         **kwargs,
     ):
-        super().__init__(
-            dataset=dataset,
-            device=device,
-            collate_fn=collate_fn,
-            exclude_batch_keys_from_device=exclude_batch_keys_from_device,
-            **kwargs,
-        )
+        super().__init__(dataset=dataset, **kwargs)
+
+        self.device = device
+        self.collate_fn = collate_fn
+        self.num_workers = kwargs.get("num_workers", 0)
+        self.exclude_batch_keys_from_device = exclude_batch_keys_from_device
+
+        # self.first_time = True
+        self.cached_collated_batch = None
 
         self.selected_image_idxs = set()
-        self.initial_image_idxs = initial_image_idxs
+        # self.initial_image_idxs = initial_image_idxs
 
     def enable_images(self, indices: List[int]):
-        # Create empty batch if it is None
-        if self.cached_collated_batch is None:
-            self.cached_collated_batch = {}
-
         # Select only images which are not loaded yet
         indices = [idx for idx in indices if idx not in self.selected_image_idxs]
 
-        #
+        if len(indices) == 0:
+            return
+
         batch_list = self._get_selection_as_batch_list(indices)
         batch_list = get_dict_to_torch(batch_list, device=self.device, exclude=self.exclude_batch_keys_from_device)
-        batch_list = [self.cached_collated_batch, *batch_list]
         collated_batch = self.collate_fn(batch_list)
 
-        # Save batch to cache and update set of selected images
-        self.cached_collated_batch = collated_batch
+        # Merge collated batches
+        if self.cached_collated_batch is None:
+            self.cached_collated_batch = collated_batch
+        else:
+            for key, value in collated_batch.items():
+                cached_value = self.cached_collated_batch[key]
+
+                if isinstance(cached_value, list):
+                    cached_value.extend(value)
+                elif isinstance(cached_value, torch.Tensor):
+                    cached_value = torch.cat([cached_value, value], dim=0)
+
+                self.cached_collated_batch[key] = cached_value
+
         self.selected_image_idxs.update(indices)
 
     def disable_images(self, indices: List[int]):
@@ -233,12 +244,10 @@ class ToggleCacheDataloader(CacheDataloader):
         return batch_list
 
     def __iter__(self):
-        assert self.cache_all_images
-
         while True:
-            if self.first_time:
-                self.enable_images(self.initial_image_idxs)
-                self.first_time = False
+            # if self.first_time:
+            #     self.enable_images(self.initial_image_idxs)
+            #     self.first_time = False
 
             yield self.cached_collated_batch
 
@@ -252,7 +261,10 @@ class EvalDataloader(DataLoader):
     """
 
     def __init__(
-        self, input_dataset: InputDataset, device: Union[torch.device, str] = "cpu", **kwargs,
+        self,
+        input_dataset: InputDataset,
+        device: Union[torch.device, str] = "cpu",
+        **kwargs,
     ):
         self.input_dataset = input_dataset
         self.cameras = input_dataset.cameras.to(device)

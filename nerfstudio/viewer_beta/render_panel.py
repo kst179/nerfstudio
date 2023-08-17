@@ -1,3 +1,17 @@
+# Copyright 2022 the Regents of the University of California, Nerfstudio Team and contributors. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Theming
 
 Viser is adding support for theming. Work-in-progress.
@@ -42,9 +56,9 @@ def populate_render_tab(server: viser.ViserServer) -> None:
         render_cameras.append(None)  # TODO
 
     with server.add_gui_folder("Output"):
-        export_name = server.add_gui_text("Export name", datetime.now().strftime("%Y-%m-%d_%H%M%S"))
-        resolution = server.add_gui_vector2("Resolution", initial_value=(1920, 1080), step=1)
-        duration = server.add_gui_number("Duration (sec)", initial_value=4.0, min=0.01)
-        framerate = server.add_gui_number("FPS", initial_value=24.0, min=1.0)
-        camera_type = server.add_gui_dropdown("Camera type", ("Perspective", "Fisheye", "Equirectangular"))
-        render_button = server.add_gui_button("Render")
+        server.add_gui_text("Export name", datetime.now().strftime("%Y-%m-%d_%H%M%S"))
+        server.add_gui_vector2("Resolution", initial_value=(1920, 1080), step=1)
+        server.add_gui_number("Duration (sec)", initial_value=4.0, min=0.01)
+        server.add_gui_number("FPS", initial_value=24.0, min=1.0)
+        server.add_gui_dropdown("Camera type", ("Perspective", "Fisheye", "Equirectangular"))
+        server.add_gui_button("Render")
